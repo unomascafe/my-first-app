@@ -311,7 +311,7 @@
       font-size: 0.88rem;
       font-family: inherit;
       padding: 8px 14px;
-      width: 140px;
+      width: 220px;
       outline: none;
       transition: border-color 0.2s, background 0.2s;
     }
@@ -375,7 +375,7 @@
     <p class="subtitle">5-Day Weather Forecast &nbsp;·&nbsp; United States</p>
 
     <div class="zip-form">
-      <input type="text" id="zip-input" placeholder="Enter ZIP code" maxlength="5" inputmode="numeric" />
+      <input type="text" id="zip-input" placeholder="ZIP code or city name" autocomplete="off" />
       <button id="zip-btn">Search</button>
     </div>
 
@@ -458,6 +458,22 @@
         lon:   parseFloat(place.longitude),
         city:  place['place name'],
         state: place['state'],
+      };
+    }
+
+    async function geocodeLocation(name) {
+      const res = await fetch(
+        `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(name)}&count=1&language=en&format=json`
+      );
+      if (!res.ok) throw new Error('Location search failed');
+      const data = await res.json();
+      if (!data.results || data.results.length === 0) throw new Error('Location not found');
+      const r = data.results[0];
+      return {
+        lat:   r.latitude,
+        lon:   r.longitude,
+        city:  r.name,
+        state: r.admin1 || r.country || '',
       };
     }
 
@@ -557,8 +573,8 @@
     document.getElementById('close-btn').addEventListener('click', closeHourly);
 
     async function handleZipSubmit() {
-      const zip = document.getElementById('zip-input').value.trim();
-      if (!/^\d{5}$/.test(zip)) { setZipError('Please enter a valid 5-digit ZIP code'); return; }
+      const query = document.getElementById('zip-input').value.trim();
+      if (!query) { setZipError('Please enter a ZIP code or city name'); return; }
 
       const btn = document.getElementById('zip-btn');
       btn.disabled = true;
@@ -566,15 +582,21 @@
       clearZipError();
 
       try {
-        const { lat, lon, city, state } = await geocodeZip(zip);
+        const isZip = /^\d{5}$/.test(query);
+        const { lat, lon, city, state } = isZip
+          ? await geocodeZip(query)
+          : await geocodeLocation(query);
         currentLat = lat;
         currentLon = lon;
-        document.getElementById('city-name').textContent = `${city}, ${state}`;
+        document.getElementById('city-name').textContent = state ? `${city}, ${state}` : city;
         document.getElementById('content').innerHTML = '<div class="loading">Fetching forecast...</div>';
         const data = await fetchWeather(lat, lon);
         render(data);
       } catch (err) {
-        setZipError(err.message === 'ZIP code not found' ? 'ZIP code not found' : 'Could not load forecast');
+        const msg = err.message === 'ZIP code not found' ? 'ZIP code not found'
+                  : err.message === 'Location not found' ? 'Location not found'
+                  : 'Could not load forecast';
+        setZipError(msg);
       } finally {
         btn.disabled = false;
         btn.textContent = 'Search';
