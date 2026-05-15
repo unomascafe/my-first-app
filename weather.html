@@ -342,6 +342,33 @@
       margin-bottom: 12px;
     }
 
+    .aqi-strip {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.78rem;
+      color: rgba(255,255,255,0.6);
+      margin-bottom: 20px;
+      padding-left: 2px;
+    }
+
+    .aqi-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .aqi-card {
+      margin-top: 8px;
+      font-size: 0.68rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      color: rgba(255,255,255,0.45);
+    }
+    .aqi-card .aqi-dot { width: 6px; height: 6px; }
+
     @media (max-width: 500px) {
       .forecast-grid { grid-template-columns: repeat(3, 1fr); }
       h1 { font-size: 1.4rem; }
@@ -373,6 +400,8 @@
       <h1 id="city-name">Mesa, Arizona</h1>
     </div>
     <p class="subtitle">6-Day Weather Forecast &nbsp;·&nbsp; United States</p>
+
+    <div id="aqi-strip" class="aqi-strip"></div>
 
     <div class="zip-form">
       <input type="text" id="zip-input" placeholder="ZIP code or city name" autocomplete="off" />
@@ -446,6 +475,39 @@
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json();
+    }
+
+    async function fetchAirQuality(lat, lon) {
+      const url =
+        'https://air-quality-api.open-meteo.com/v1/air-quality' +
+        `?latitude=${lat}&longitude=${lon}` +
+        '&hourly=us_aqi' +
+        '&timezone=auto' +
+        '&forecast_days=6';
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`AQ HTTP ${res.status}`);
+      return res.json();
+    }
+
+    function aqiInfo(v) {
+      if (v == null) return null;
+      if (v <= 50)  return { label: 'Good',                     color: '#4ade80' };
+      if (v <= 100) return { label: 'Moderate',                 color: '#facc15' };
+      if (v <= 150) return { label: 'Unhealthy for Sensitive',  color: '#fb923c' };
+      if (v <= 200) return { label: 'Unhealthy',                color: '#f87171' };
+      if (v <= 300) return { label: 'Very Unhealthy',           color: '#c084fc' };
+                    return { label: 'Hazardous',                color: '#f43f5e' };
+    }
+
+    function dailyMaxAqi(aqiData, dates) {
+      if (!aqiData || !aqiData.hourly) return dates.map(() => null);
+      const { time, us_aqi } = aqiData.hourly;
+      return dates.map(dateStr => {
+        const vals = time
+          .map((t, i) => t.startsWith(dateStr) ? us_aqi[i] : null)
+          .filter(v => v != null);
+        return vals.length ? Math.round(Math.max(...vals)) : null;
+      });
     }
 
     async function geocodeZip(zip) {
@@ -553,11 +615,24 @@
       }
     }
 
-    function render(data) {
+    function render(data, aqiData) {
       weatherData = data;
       selectedIndex = null;
       document.getElementById('hourly-panel').classList.remove('open');
       const { daily } = data;
+
+      const dailyAqi = dailyMaxAqi(aqiData, daily.time);
+
+      const strip = document.getElementById('aqi-strip');
+      const todayMeta = aqiInfo(dailyAqi[0]);
+      if (todayMeta && dailyAqi[0] != null) {
+        strip.style.display = 'flex';
+        strip.innerHTML =
+          `<span class="aqi-dot" style="background:${todayMeta.color}"></span>` +
+          `<span>Air Quality &nbsp;·&nbsp; AQI <strong>${dailyAqi[0]}</strong> &nbsp;·&nbsp; ${todayMeta.label}</span>`;
+      } else {
+        strip.style.display = 'none';
+      }
 
       const cards = daily.time.map((dateStr, i) => {
         const [icon, label] = wmoLookup(daily.weathercode[i]);
@@ -565,6 +640,10 @@
         const low    = celsiusToF(daily.temperature_2m_min[i]);
         const precip = daily.precipitation_sum[i];
         const precipStr = precip > 0 ? `💧 ${precip.toFixed(2)}"` : '';
+        const aqiMeta = aqiInfo(dailyAqi[i]);
+        const aqiHtml = aqiMeta
+          ? `<div class="aqi-card"><span class="aqi-dot" style="background:${aqiMeta.color}"></span>AQI ${dailyAqi[i]}</div>`
+          : '';
         return `
           <div class="day-card ${i === 0 ? 'today' : ''}" data-index="${i}">
             <div class="day-name">${formatDay(dateStr, i)}</div>
@@ -576,6 +655,7 @@
               <span class="temp-low">${low}°</span>
             </div>
             <div class="precip">${precipStr}</div>
+            ${aqiHtml}
             <div class="click-hint">tap for hourly</div>
           </div>`;
       }).join('');
@@ -622,8 +702,11 @@
         currentLon = lon;
         document.getElementById('city-name').textContent = state ? `${city}, ${state}` : city;
         document.getElementById('content').innerHTML = '<div class="loading">Fetching forecast...</div>';
-        const data = await fetchWeather(lat, lon);
-        render(data);
+        const [data, aqiData] = await Promise.all([
+          fetchWeather(lat, lon),
+          fetchAirQuality(lat, lon).catch(() => null),
+        ]);
+        render(data, aqiData);
       } catch (err) {
         const msg = err.message === 'ZIP code not found' ? 'ZIP code not found'
                   : err.message === 'Location not found' ? 'Location not found'
@@ -656,8 +739,10 @@
       if (e.key === 'Enter') handleZipSubmit();
     });
 
-    fetchWeather(currentLat, currentLon)
-      .then(render)
+    Promise.all([
+      fetchWeather(currentLat, currentLon),
+      fetchAirQuality(currentLat, currentLon).catch(() => null),
+    ]).then(([data, aqiData]) => render(data, aqiData))
       .catch(err => {
         document.getElementById('content').innerHTML =
           `<div class="error">Could not load forecast: ${err.message}</div>`;
