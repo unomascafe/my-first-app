@@ -461,19 +461,51 @@
       };
     }
 
+    const STATE_ABBR = {
+      AL:'Alabama',AK:'Alaska',AZ:'Arizona',AR:'Arkansas',CA:'California',
+      CO:'Colorado',CT:'Connecticut',DE:'Delaware',FL:'Florida',GA:'Georgia',
+      HI:'Hawaii',ID:'Idaho',IL:'Illinois',IN:'Indiana',IA:'Iowa',
+      KS:'Kansas',KY:'Kentucky',LA:'Louisiana',ME:'Maine',MD:'Maryland',
+      MA:'Massachusetts',MI:'Michigan',MN:'Minnesota',MS:'Mississippi',MO:'Missouri',
+      MT:'Montana',NE:'Nebraska',NV:'Nevada',NH:'New Hampshire',NJ:'New Jersey',
+      NM:'New Mexico',NY:'New York',NC:'North Carolina',ND:'North Dakota',OH:'Ohio',
+      OK:'Oklahoma',OR:'Oregon',PA:'Pennsylvania',RI:'Rhode Island',SC:'South Carolina',
+      SD:'South Dakota',TN:'Tennessee',TX:'Texas',UT:'Utah',VT:'Vermont',
+      VA:'Virginia',WA:'Washington',WV:'West Virginia',WI:'Wisconsin',WY:'Wyoming',
+      DC:'District of Columbia',
+    };
+
     async function geocodeLocation(name) {
+      let cityQuery = name;
+      let stateFilter = null;
+
+      const comma = name.indexOf(',');
+      if (comma !== -1) {
+        cityQuery  = name.slice(0, comma).trim();
+        const raw  = name.slice(comma + 1).trim();
+        stateFilter = STATE_ABBR[raw.toUpperCase()] || raw;
+      }
+
       const res = await fetch(
-        `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(name)}&count=1&language=en&format=json`
+        `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(cityQuery)}&count=10&language=en&format=json`
       );
       if (!res.ok) throw new Error('Location search failed');
       const data = await res.json();
       if (!data.results || data.results.length === 0) throw new Error('Location not found');
-      const r = data.results[0];
+
+      let result = data.results[0];
+      if (stateFilter) {
+        const match = data.results.find(r =>
+          r.admin1 && r.admin1.toLowerCase() === stateFilter.toLowerCase()
+        );
+        if (match) result = match;
+      }
+
       return {
-        lat:   r.latitude,
-        lon:   r.longitude,
-        city:  r.name,
-        state: r.admin1 || r.country || '',
+        lat:   result.latitude,
+        lon:   result.longitude,
+        city:  result.name,
+        state: result.admin1 || result.country || '',
       };
     }
 
