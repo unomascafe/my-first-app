@@ -301,6 +301,47 @@
 
     .updated { text-align: right; font-size: 0.72rem; color: rgba(255,255,255,0.3); margin-top: 20px; }
 
+    .zip-form { display: flex; gap: 8px; margin-bottom: 24px; }
+
+    #zip-input {
+      background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(255,255,255,0.18);
+      border-radius: 10px;
+      color: #fff;
+      font-size: 0.88rem;
+      font-family: inherit;
+      padding: 8px 14px;
+      width: 140px;
+      outline: none;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    #zip-input::placeholder { color: rgba(255,255,255,0.32); }
+    #zip-input:focus {
+      border-color: rgba(251,211,141,0.5);
+      background: rgba(255,255,255,0.14);
+    }
+
+    #zip-btn {
+      background: rgba(251,211,141,0.18);
+      border: 1px solid rgba(251,211,141,0.38);
+      border-radius: 10px;
+      color: #fbd38d;
+      font-size: 0.85rem;
+      font-family: inherit;
+      padding: 8px 18px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    #zip-btn:hover    { background: rgba(251,211,141,0.28); }
+    #zip-btn:disabled { opacity: 0.5; cursor: default; }
+
+    .zip-error {
+      font-size: 0.75rem;
+      color: #ff6b6b;
+      margin-top: -18px;
+      margin-bottom: 12px;
+    }
+
     @media (max-width: 500px) {
       .forecast-grid { grid-template-columns: repeat(3, 1fr); }
       h1 { font-size: 1.4rem; }
@@ -329,9 +370,14 @@
   <div class="card">
     <div class="header">
       <span class="location-icon">📍</span>
-      <h1>Mesa, Arizona</h1>
+      <h1 id="city-name">Mesa, Arizona</h1>
     </div>
     <p class="subtitle">5-Day Weather Forecast &nbsp;·&nbsp; United States</p>
+
+    <div class="zip-form">
+      <input type="text" id="zip-input" placeholder="Enter ZIP code" maxlength="5" inputmode="numeric" />
+      <button id="zip-btn">Search</button>
+    </div>
 
     <div id="content"><div class="loading">Fetching forecast...</div></div>
 
@@ -384,19 +430,35 @@
       return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
     }
 
-    async function fetchWeather() {
+    let currentLat  = 33.4152;
+    let currentLon  = -111.8315;
+
+    async function fetchWeather(lat, lon) {
       const url =
         'https://api.open-meteo.com/v1/forecast' +
-        '?latitude=33.4152&longitude=-111.8315' +
+        `?latitude=${lat}&longitude=${lon}` +
         '&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weathercode' +
         '&hourly=temperature_2m,weathercode,precipitation' +
         '&temperature_unit=celsius' +
         '&precipitation_unit=inch' +
-        '&timezone=America%2FPhoenix' +
+        '&timezone=auto' +
         '&forecast_days=5';
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json();
+    }
+
+    async function geocodeZip(zip) {
+      const res = await fetch(`https://api.zippopotam.us/us/${zip}`);
+      if (!res.ok) throw new Error('ZIP code not found');
+      const data = await res.json();
+      const place = data.places[0];
+      return {
+        lat:   parseFloat(place.latitude),
+        lon:   parseFloat(place.longitude),
+        city:  place['place name'],
+        state: place['state'],
+      };
     }
 
     let weatherData = null;
@@ -445,6 +507,8 @@
 
     function render(data) {
       weatherData = data;
+      selectedIndex = null;
+      document.getElementById('hourly-panel').classList.remove('open');
       const { daily } = data;
 
       const cards = daily.time.map((dateStr, i) => {
@@ -492,7 +556,53 @@
 
     document.getElementById('close-btn').addEventListener('click', closeHourly);
 
-    fetchWeather()
+    async function handleZipSubmit() {
+      const zip = document.getElementById('zip-input').value.trim();
+      if (!/^\d{5}$/.test(zip)) { setZipError('Please enter a valid 5-digit ZIP code'); return; }
+
+      const btn = document.getElementById('zip-btn');
+      btn.disabled = true;
+      btn.textContent = '...';
+      clearZipError();
+
+      try {
+        const { lat, lon, city, state } = await geocodeZip(zip);
+        currentLat = lat;
+        currentLon = lon;
+        document.getElementById('city-name').textContent = `${city}, ${state}`;
+        document.getElementById('content').innerHTML = '<div class="loading">Fetching forecast...</div>';
+        const data = await fetchWeather(lat, lon);
+        render(data);
+      } catch (err) {
+        setZipError(err.message === 'ZIP code not found' ? 'ZIP code not found' : 'Could not load forecast');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Search';
+      }
+    }
+
+    function setZipError(msg) {
+      let el = document.getElementById('zip-error');
+      if (!el) {
+        el = document.createElement('p');
+        el.id = 'zip-error';
+        el.className = 'zip-error';
+        document.querySelector('.zip-form').insertAdjacentElement('afterend', el);
+      }
+      el.textContent = msg;
+    }
+
+    function clearZipError() {
+      const el = document.getElementById('zip-error');
+      if (el) el.remove();
+    }
+
+    document.getElementById('zip-btn').addEventListener('click', handleZipSubmit);
+    document.getElementById('zip-input').addEventListener('keydown', e => {
+      if (e.key === 'Enter') handleZipSubmit();
+    });
+
+    fetchWeather(currentLat, currentLon)
       .then(render)
       .catch(err => {
         document.getElementById('content').innerHTML =
