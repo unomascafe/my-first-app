@@ -207,7 +207,7 @@
 
     .forecast-grid {
       display: grid;
-      grid-template-columns: repeat(5, 1fr);
+      grid-template-columns: repeat(6, 1fr);
       gap: 12px;
     }
 
@@ -372,7 +372,7 @@
       <span class="location-icon">📍</span>
       <h1 id="city-name">Mesa, Arizona</h1>
     </div>
-    <p class="subtitle">5-Day Weather Forecast &nbsp;·&nbsp; United States</p>
+    <p class="subtitle">6-Day Weather Forecast &nbsp;·&nbsp; United States</p>
 
     <div class="zip-form">
       <input type="text" id="zip-input" placeholder="ZIP code or city name" autocomplete="off" />
@@ -442,7 +442,7 @@
         '&temperature_unit=celsius' +
         '&precipitation_unit=inch' +
         '&timezone=auto' +
-        '&forecast_days=5';
+        '&forecast_days=6';
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json();
